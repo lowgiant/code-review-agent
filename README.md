@@ -1,52 +1,53 @@
 # code-review-agent
 
-언어와 코드베이스를 가리지 않는 코드 리뷰 Claude Code 서브에이전트. 기계적 검증을 끝낸 diff를
-받아, 하네스가 볼 수 없는 결함만 보고합니다.
+CI 하네스를 통과한 diff를 받아, 하네스가 잡을 수 없는 결함만 보고하는 Claude Code 서브에이전트.
 
-## 어디에 들어가는가
+## 파이프라인
 
-```
-개발자가 PR을 열거나 커밋을 올림
-        │
-        ▼
-┌──────────────────────────────────────────────────┐
-│ 1단계 · CI 하네스 — 기계적 검증 (별도 저장소)      │
-│   린터와 포매터   스타일, 포맷, import            │
-│   타입 검사기     정적 타입 오류                  │
-│   단위·통합 테스트 기능 파손                      │
-└──────────────────────────────────────────────────┘
-        │
-   실패 ├──────────▶ 리뷰 중단, 하네스부터 수정
-        │
-   통과 ▼
-┌──────────────────────────────────────────────────┐
-│ 2단계 · 리뷰 에이전트 — 심층 맥락                 │
-│   입력  diff, PR 설명, 컨벤션 문서,               │
-│         하네스 결과(주어지면)                     │
-│   검증  신뢰 경계, 로직 결함, 동시성, 자원,        │
-│         N+1, 엣지 케이스                          │
-│   방법  자체 반박으로 후보를 떨어뜨림              │
-│   출력  blocker / fix / note 리포트               │
-└──────────────────────────────────────────────────┘
-        │
-        ▼
-사람 리뷰어가 최종 판단하고 머지
+```mermaid
+flowchart TD
+  dev["개발자 · PR 생성 또는 커밋 푸시"] --> h["1단계 · CI 하네스<br/>별도 저장소"]
+  h --> q{"통과?"}
+  q -- fail --> stop["리뷰 중단<br/>하네스부터 수정"]
+  q -- pass --> a["2단계 · 리뷰 에이전트<br/>심층 맥락"]
+  a --> r["리포트<br/>blocker / fix / note"]
+  r --> human["사람 리뷰어 · 머지 판단"]
 ```
 
-에이전트는 읽기 전용이고 등급은 권고입니다. `blocker`는 머지를 막는 권한이 아니라 머지 전에
-보라는 신호이며, 결정은 사람이 합니다.
+- 1단계 입력: 커밋, 1단계 출력: pass 또는 fail
+- 2단계 입력: diff, PR 본문, 컨벤션 문서, 하네스 결과(주어지면)
+- 2단계 방법: self-refutation. 재현 조건과 결과를 짝으로 못 쓰면 후보를 버림
+- 2단계 출력: `blocker` `fix` `note` 리포트. 등급은 권고이고 머지 판단은 사람이 함
+- 에이전트는 read-only. `Bash` 는 `git diff` 수집에만 사용
 
-## 무엇을 하고 무엇을 하지 않는가
+## 단계별 책임
 
-| 하네스(1단계)가 담당 | 에이전트(2단계)가 담당 |
+| 1단계 · 하네스 | 2단계 · 에이전트 |
 |---|---|
-| 스타일, 포맷, 들여쓰기, import 정렬 | 신뢰 경계 위반과 권한 우회 |
-| 정적 타입 오류, 미사용 변수와 import | 확인과 변경의 분리, 경쟁 조건 |
-| 단위 테스트가 잡는 수준의 단순 오류 | 삼켜진 실패, 자원 누수, 멱등성 파손 |
-| 문자열 바깥의 단순 오탈자 | N+1, 무제한 할당, 타임아웃 누락 |
-| | 코드와 모순되는 주석, 문서, 이름 |
+| lint, format, import order | taint flow, authorization |
+| type check | race condition, idempotency |
+| unit, integration test | resource leak, query cost |
+| dead code, unused symbol | boundary condition, error handling |
+| 문자열 밖 오탈자 | 코드와 모순되는 주석·문서·식별자 |
 
-스타일과 포맷팅 지적은 하지 않습니다. 1단계가 이미 통과시켰다고 전제합니다.
+스타일과 포맷 지적은 하지 않습니다.
+
+## 2단계 검증 항목
+
+| 영역 | 항목 |
+|---|---|
+| Taint flow | untrusted source → privileged sink, SQL/command injection, SSRF, path traversal, zip slip, 템플릿 주입 |
+| Authorization | IDOR, BOLA, 테넌트 스코프 누락, per-route 검사만 있고 per-object 검사 없음 |
+| Secret | 로그·URL·아티팩트·스택 트레이스 유출, 기본 권한 설정 파일, 비상수 시간 비교 |
+| Concurrency | race condition, TOCTOU, data race, check-then-act, await 가로지르는 lock, deadlock |
+| Idempotency | at-least-once 재전송 중복 처리, 조건부 갱신 누락, 유니크 제약 부재 |
+| Resource | connection pool exhaustion, cursor leak, fd leak, unbounded allocation, timer·goroutine leak |
+| Query cost | N+1, full scan, deep OFFSET, 인덱스 미사용, 장기 트랜잭션 lock, lock 승격 |
+| Error handling | swallowed exception, fail-open, partial failure를 success로 보고 |
+| Boundary | off-by-one, null과 falsy 구분, empty·at-limit·overflow |
+| Time | timezone, DST, monotonic과 wall clock, clock skew, TTL 산술 |
+| Interface | 스키마 마이그레이션 양방향 호환, 설정 키·공개 API 변경 |
+| Supply chain | mutable tag 참조, cache poisoning, 토큰 스코프 과다, 신뢰 못 할 트리거의 비밀값 노출 |
 
 ## 파일
 
@@ -55,16 +56,16 @@
 | `agents/code-reviewer.md` | 영어 |
 | `agents/code-reviewer-ko.md` | 한국어 |
 
-규칙은 같고 보고 언어만 다릅니다. 하나만 설치하세요. description이 비슷해 자동 위임 시 선택이
-갈립니다.
+규칙은 동일하고 보고 언어만 다릅니다. `description` 이 비슷해 자동 위임 시 선택이 갈리므로 하나만
+설치하세요.
 
 ## 설치
 
 ```bash
-# 특정 프로젝트 (레포에 커밋되어 팀과 공유)
+# 프로젝트 단위
 mkdir -p <project>/.claude/agents && cp agents/code-reviewer-ko.md <project>/.claude/agents/
 
-# 전역 (모든 프로젝트)
+# 계정 전역
 mkdir -p ~/.claude/agents && cp agents/code-reviewer-ko.md ~/.claude/agents/
 ```
 
@@ -72,26 +73,28 @@ mkdir -p ~/.claude/agents && cp agents/code-reviewer-ko.md ~/.claude/agents/
 
 | 방식 | 사용법 |
 |---|---|
-| 자동 위임 | 코드를 바꾼 뒤 "리뷰해줘" |
-| 명시적 호출 | 프롬프트에 `@"code-reviewer-ko (agent)"` |
+| 자동 위임 | 코드 변경 후 "리뷰해줘" |
+| 명시적 호출 | `@"code-reviewer-ko (agent)"` |
 | 세션 고정 | `claude --agent code-reviewer-ko` |
 
-## 등급과 태그
+## 등급
 
-| 등급 | 뜻 | 기준 |
+| 등급 | 조치 | 기준 |
 |---|---|---|
-| `blocker` | 머지 전 수정 | 데이터 유실, 권한 우회, 운영 중단, 되돌리기 어려운 손상 |
-| `fix` | 이번 PR에서 수정 | 특정 조건에서 틀린 동작, 자원 고갈, 장애를 가리는 처리 |
-| `note` | 기록만 | 지금 깨지지 않지만 다음 변경에서 깨질 지점 |
+| `blocker` | 머지 전 | data loss, authorization bypass, outage, 비가역 손상 |
+| `fix` | 이번 PR | 조건부 오동작, resource exhaustion, 장애 은폐 |
+| `note` | 기록 | 현재 무해, 다음 변경에서 파손 |
+
+## 태그
 
 | 태그 | 범위 |
 |---|---|
-| `correctness` | 틀린 결과, 경쟁 조건, 경계 조건, 삼켜진 실패, 멱등성, 시간 처리 |
-| `security` | 신뢰 경계 위반, 권한 우회, 비밀값 노출 |
-| `resource` | 메모리, 커넥션, 핸들, 락, 질의 비용 |
+| `correctness` | 오동작, race, boundary, swallowed failure, idempotency, time |
+| `security` | trust boundary, authorization, secret |
+| `resource` | memory, connection, handle, lock, query cost |
 | `interface` | 공개 API, 저장 포맷, 설정 키, 호환성 |
-| `clarity` | 코드와 모순되는 이름, 주석, 문서 |
-| `tests` | 빠진 검증, 변경과 무관하게 통과하는 검증 |
+| `clarity` | 코드와 모순되는 이름·주석·문서 |
+| `tests` | 누락된 검증, 변경과 무관하게 통과하는 검증 |
 
 ## 리포트 형식
 
@@ -106,19 +109,18 @@ mkdir -p ~/.claude/agents && cp agents/code-reviewer-ko.md ~/.claude/agents/
   판단  왜 이 등급인가. 가정이 있으면 가정과 가정이 깨질 때의 등급
 
   패치
-      <해당 행 범위에 그대로 적용되는 코드. 모르면 비우고 이유를 쓴다>
+      <해당 행 범위에 적용되는 코드. 모르면 비우고 이유를 쓴다>
 
 보고하지 않음
   - <항목> — <제외 이유>
 ```
 
-근거, 재현, 판단은 비울 수 없습니다. 재현을 쓸 수 없는 후보는 자체 반박 단계에서 버려야 했던
-것입니다. 패치는 비울 수 있고, 비울 때는 그 자리에 이유를 씁니다.
+- 근거, 재현, 판단은 필수
+- 패치는 생략 가능. 생략 시 그 자리에 이유를 적음
+- 패치는 인용 행 범위에 원본 들여쓰기로 적용됨
+- 보고하지 않음은 생략 불가
 
 ## 데모 PR
-
-언어별로 PR 하나씩 열어 두었습니다. 각 PR은 실제 기여처럼 읽히는 설명과 코드를 담고, 리뷰
-리포트가 코멘트로 붙어 있습니다.
 
 | 언어 · PR | 기능 | 코드 | blocker | fix | note |
 |---|---|---|---|---|---|
@@ -131,42 +133,32 @@ mkdir -p ~/.claude/agents && cp agents/code-reviewer-ko.md ~/.claude/agents/
 | [SQL](https://github.com/lowgiant/code-review-agent/pull/7) | orders 이행 시각 마이그레이션 | 20행 | 2 | 1 | 2 |
 | [GitHub Actions](https://github.com/lowgiant/code-review-agent/pull/8) | PR 검사 워크플로 | 43행 | 2 | 2 | 1 |
 
-> 데모 PR의 코드에는 결함을 의도적으로 넣었습니다. 리뷰 출력을 보여주기 위한 연출이며 머지하지
-> 않습니다. `demo/` 접두 브랜치에만 있고 기본 브랜치에는 반영되지 않습니다. 운영 코드로
-> 가져가지 마세요. GitHub Actions 사례는 `.github/workflows/` 가 아닌 경로에 둬서 실행되지
-> 않습니다.
+- 데모 PR의 코드에는 결함을 의도적으로 넣었습니다
+- `demo/` 접두 브랜치에만 존재하고 main에 반영되지 않으며 머지하지 않습니다
+- 운영 코드로 가져가지 마세요
+- GitHub Actions 사례는 `.github/workflows/` 가 아닌 경로에 있어 실행되지 않습니다
 
 ## 설계 원칙
 
-- **재현 조건이 없으면 지적이 아니다.** 숫자 임계값을 쓰지 않습니다. 구체적 입력과 구체적으로
-  잘못되는 결과를 짝으로 제시할 수 있는 것만 보고합니다. 아무것도 찾지 못한 것도 결과입니다.
-- **보안은 신뢰 경계로 판단한다.** 위험해 보이는 함수를 세지 않고, 신뢰할 수 없는 출처에서
-  권한 있는 싱크까지 경로를 추적합니다. 양쪽을 지목하지 못하면 보고하지 않습니다.
-- **설계상 확장 지점은 취약점이 아니다.** 플러그인 로더, 설정에 적힌 callable의 동적 import,
-  설정 문자열의 템플릿 렌더링은 운영자가 작성한 입력을 실행하는 확장 모델입니다. 신뢰할 수 없는
-  값이 그 경로에 도달하게 만드는 변경만 지적합니다.
-- **프로젝트 규약이 우선한다.** 리뷰 시작 시 `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md` 를
-  읽고 충돌하는 지점에서는 그 문서를 따릅니다.
-- **읽기 전용이다.** `Bash` 는 `git diff` 같은 변경사항 수집에만 쓰고 테스트, 린트, 포매터,
-  빌드는 실행하지 않습니다. 그 일은 1단계 담당입니다. 수정과 커밋을 하지 않고 패치는 텍스트로만
-  제안합니다.
+- **보고 임계는 재현 가능성 하나.** 숫자 임계 없음. 입력과 잘못된 결과를 짝으로 제시 못하면 버림
+- **보안은 taint flow로 판단.** 함수 이름이 아니라 source와 sink를 양쪽 다 지목
+- **privileged-by-design은 제외.** plugin loader, 설정 callable의 동적 import, 설정 템플릿 렌더링은
+  운영자 입력 실행이므로 취약점 아님. untrusted 값이 그 경로에 도달하는 변경만 지적
+- **프로젝트 규약 우선.** `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md` 를 먼저 읽고 충돌 시 그 문서를 따름
+- **read-only.** 테스트·lint·format·build 미실행. 수정과 커밋 없이 패치는 텍스트로만 제안
 
 ## 커스터마이즈
 
-프로젝트별 규칙은 에이전트 파일이 아니라 그 레포의 `AGENTS.md` 나 `CLAUDE.md` 에 씁니다.
-에이전트가 리뷰 시작 시 읽고 자기 기본값보다 우선시하므로, 에이전트 파일은 모든 프로젝트에서
-그대로 재사용됩니다.
-
-에이전트 자체를 고칠 항목:
+프로젝트별 규칙은 에이전트 파일이 아니라 해당 레포의 `AGENTS.md` 또는 `CLAUDE.md` 에 둡니다.
+에이전트가 그 문서를 자기 기본값보다 우선시하므로 에이전트 파일은 모든 프로젝트에서 재사용됩니다.
 
 | 항목 | 위치 |
 |---|---|
-| 등급 정의 | "등급 3단계" |
-| 태그 집합 | "태그 6종" |
-| 하네스 경계 | "역할 분담" |
-| 리포트 구조 | "리포트 형식" |
-| 모델 | frontmatter `model` |
-| 도구 권한 | frontmatter `tools` |
+| 등급 정의 | 에이전트의 "등급 3단계" |
+| 태그 집합 | 에이전트의 "태그 6종" |
+| 하네스 경계 | 에이전트의 "역할 분담" |
+| 리포트 구조 | 에이전트의 "리포트 형식" |
+| 모델, 도구 권한 | frontmatter `model`, `tools` |
 
 ## 라이선스
 
