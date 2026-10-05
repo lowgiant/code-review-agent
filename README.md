@@ -120,16 +120,16 @@ mkdir -p ~/.claude/agents && cp agents/code-reviewer-ko.md ~/.claude/agents/
 언어별로 PR 하나씩 열어 두었습니다. 각 PR은 실제 기여처럼 읽히는 설명과 코드를 담고, 리뷰
 리포트가 코멘트로 붙어 있습니다.
 
-| 언어 | 기능 | 코드 | blocker | fix | note |
+| 언어 · PR | 기능 | 코드 | blocker | fix | note |
 |---|---|---|---|---|---|
-| Python | 테넌트 CSV 익스포트 다운로드 API | 98행 | 1 | 1 | 1 |
-| TypeScript | 결제 제공자 웹훅 수신 | 90행 | 2 | 2 | 1 |
-| Go | 회전식 감사 로그 기록기 | 123행 | 2 | 2 | 1 |
-| Rust | 테넌트별 요청 제한 | 68행 | 1 | 2 | 2 |
-| Java | 대시보드 보고서 검색 | 93행 | 1 | 3 | 1 |
-| Shell | 호스트 배포 스크립트 | 44행 | 2 | 2 | 1 |
-| SQL | orders 이행 시각 마이그레이션 | 20행 | 2 | 1 | 2 |
-| GitHub Actions | PR 검사 워크플로 | 46행 | 2 | 2 | 1 |
+| [Python](https://github.com/lowgiant/code-review-agent/pull/1) | 테넌트 CSV 익스포트 다운로드 API | 98행 | 1 | 1 | 1 |
+| [TypeScript](https://github.com/lowgiant/code-review-agent/pull/2) | 결제 제공자 웹훅 수신 | 90행 | 2 | 2 | 1 |
+| [Go](https://github.com/lowgiant/code-review-agent/pull/3) | 회전식 감사 로그 기록기 | 123행 | 2 | 2 | 1 |
+| [Rust](https://github.com/lowgiant/code-review-agent/pull/4) | 테넌트별 요청 제한 | 68행 | 1 | 2 | 2 |
+| [Java](https://github.com/lowgiant/code-review-agent/pull/5) | 대시보드 보고서 검색 | 93행 | 1 | 3 | 1 |
+| [Shell](https://github.com/lowgiant/code-review-agent/pull/6) | 호스트 배포 스크립트 | 44행 | 2 | 2 | 1 |
+| [SQL](https://github.com/lowgiant/code-review-agent/pull/7) | orders 이행 시각 마이그레이션 | 20행 | 2 | 1 | 2 |
+| [GitHub Actions](https://github.com/lowgiant/code-review-agent/pull/8) | PR 검사 워크플로 | 43행 | 2 | 2 | 1 |
 
 > 데모 PR의 코드에는 결함을 의도적으로 넣었습니다. 리뷰 출력을 보여주기 위한 연출이며 머지하지
 > 않습니다. `demo/` 접두 브랜치에만 있고 기본 브랜치에는 반영되지 않습니다. 운영 코드로
